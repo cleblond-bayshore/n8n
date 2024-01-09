@@ -1,6 +1,6 @@
-import util from 'util';
 import type {
 	IExecuteFunctions,
+	GenericValue,
 	ICredentialDataDecryptedObject,
 	ICredentialsDecrypted,
 	ICredentialTestFunctions,
@@ -12,8 +12,11 @@ import type {
 } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 
-import set from 'lodash/set';
+import set from 'lodash.set';
 import redis from 'redis';
+
+import util from 'util';
+import fs from 'fs';
 
 export class Redis implements INodeType {
 	description: INodeTypeDescription = {
@@ -347,18 +350,7 @@ export class Redis implements INodeType {
 				default: 'automatic',
 				description: 'The type of the key to set',
 			},
-			{
-				displayName: 'Value Is JSON',
-				name: 'valueIsJSON',
-				type: 'boolean',
-				displayOptions: {
-					show: {
-						keyType: ['hash'],
-					},
-				},
-				default: true,
-				description: 'Whether the value is JSON or key value pairs',
-			},
+
 			{
 				displayName: 'Expire',
 				name: 'expire',
@@ -504,10 +496,53 @@ export class Redis implements INodeType {
 				credential: ICredentialsDecrypted,
 			): Promise<INodeCredentialTestResult> {
 				const credentials = credential.data as ICredentialDataDecryptedObject;
+				// socket: {
+				// 	// keepAlive: 300, // 5 minutes DEFAULT
+				// 	tls: false,
+				// },
 				const redisOptions: redis.ClientOpts = {
 					host: credentials.host as string,
 					port: credentials.port as number,
 					db: credentials.database as number,
+					tls: {
+						minVersion: 'TLSv1.2',
+						maxVersion: 'TLSv1.3',
+						//ca: credentials.caCert as string,
+						ca: Buffer.from(
+							'-----BEGIN CERTIFICATE-----\n' +
+								'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\n' +
+								'0iN5N4fu7CsoQwY2CB4Ga10GiFsX\n' +
+								'-----END CERTIFICATE-----\n',
+						), // .readFileSync('./ca.crt'),
+						//key:
+						//cert:
+					},
 				};
 
 				if (credentials.password) {
@@ -614,7 +649,6 @@ export class Redis implements INodeType {
 			expire: boolean,
 			ttl: number,
 			type?: string,
-			valueIsJSON?: boolean,
 		) => {
 			if (type === undefined || type === 'automatic') {
 				// Request the type first
@@ -637,36 +671,15 @@ export class Redis implements INodeType {
 				await clientSet(keyName, value.toString());
 			} else if (type === 'hash') {
 				const clientHset = util.promisify(client.hset).bind(client);
-				if (valueIsJSON) {
-					let values: unknown;
-					if (typeof value === 'string') {
-						try {
-							values = JSON.parse(value);
-						} catch {
-							// This is how we originally worked and prevents a breaking change
-							values = value;
-						}
-					} else {
-						values = value;
-					}
-					for (const key of Object.keys(values as object)) {
-						// @ts-ignore
-						await clientHset(keyName, key, (values as IDataObject)[key]!.toString());
-					}
-				} else {
-					const values = value.toString().split(' ');
-					//@ts-ignore
-					await clientHset(keyName, values);
+				for (const key of Object.keys(value)) {
+					// @ts-ignore
+					await clientHset(keyName, key, (value as IDataObject)[key]!.toString());
 				}
 			} else if (type === 'list') {
 				const clientLset = util.promisify(client.lset).bind(client);
 				for (let index = 0; index < (value as string[]).length; index++) {
 					await clientLset(keyName, index, (value as IDataObject)[index]!.toString());
 				}
-			} else if (type === 'sets') {
-				const clientSadd = util.promisify(client.sadd).bind(client);
-				//@ts-ignore
-				await clientSadd(keyName, value);
 			}
 
 			if (expire) {
@@ -687,6 +700,45 @@ export class Redis implements INodeType {
 				host: credentials.host as string,
 				port: credentials.port as number,
 				db: credentials.database as number,
+				tls: {
+					minVersion: 'TLSv1.2',
+					maxVersion: 'TLSv1.3',
+					//ca: credentials.caCert as string,
+					ca: Buffer.from(
+						'-----BEGIN CERTIFICATE-----\n' +
+							'MIIFITCCAwmgAwIBAgIUMD0FiCPAkKWjEiFpQqkz3jxE2TIwDQYJKoZIhvcNAQEL\n' +
+							'BQAwIDEKMAgGA1UECgwBQTESMBAGA1UEAwwJMTI3LjAuMC4xMB4XDTI0MDEwNjE5\n' +
+							'MDM0OFoXDTI1MDEwNTE5MDM0OFowIDEKMAgGA1UECgwBQTESMBAGA1UEAwwJMTI3\n' +
+							'LjAuMC4xMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAoBmDRqCjIVS8\n' +
+							'hDA2miZ73v9XIdUvyCriCJbVCHjEKXW/NhUw3cmcrGYSmTzJOBL+uBmumrwvFkrQ\n' +
+							'CRR6dwK5u+9wUPpd9LsQtKExs/BnYq1IjzB8GeR6K0phSWd+HNsMfERGlh5vO/zD\n' +
+							'T4r+LYaW2z92W+EzB/GX7Jb8Uls+QrtdpS3KvufHmRBWnK0QCA64MGAHEI1PDWRv\n' +
+							'5uuV8uPHerrE34NsZ4JUS0GzRfRMjRL2894psnusAanQQHYiO2ltl0XYpSzsO1m+\n' +
+							'FuZag/yKNtScHv9wMUrYJJ2MfV3cOZBqUVEPttFISrFmf7UdkTK63t+Ea/mP4Anv\n' +
+							'dTU7aC3PyibZ9ueSDDM1cEJj35owVTKPMBfWS9ttuEgh+SSwnm95l7IPycY3HWL0\n' +
+							'Qh6JFJ5XtHdD/UC3YREZ4oM/oeYd95fp2dXXH70PzEZy9wbrLOCQ9ombl3UNMir0\n' +
+							'BGcSsF5InLMyG8blEPRuacB7m54t8913cBhL+mJ58X7F5JZkmZm/cyclCTT5+WuH\n' +
+							'96b0Z131dxIgAs51FMUqrEP2n4JPoDyT+MqSzLZQOcBJWRb3nL6a7k8K5+KIwE5J\n' +
+							'EE+y/pl/zxWDHKV2ZRPPOw3xjUoldrKFooshvcyp8SGp8kPv2MWpSftN8nK/jI3Z\n' +
+							'mSyYNqj2RvY9VA/H1Fytd00uIYN4G8kCAwEAAaNTMFEwHQYDVR0OBBYEFL0hylwz\n' +
+							'eK6ECoInzZwIzSG2GW7vMB8GA1UdIwQYMBaAFL0hylwzeK6ECoInzZwIzSG2GW7v\n' +
+							'MA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggIBAF1jMxsF3JvdDNrn\n' +
+							'Q++/QZdopqVir9KOOnQvjgv/m0In7hZNnGPOl5mHLGXwn4fmdXkeAXgRT+48qufh\n' +
+							'HPFUUXYtGkNAolgbflV0yB3auP3J1NRIDMF9LJCaEs7NwGkhdoOkzlmKfGtGzhVZ\n' +
+							'taS++CDf+Q2x9DVdavoAc9RE7gVGUTUy/lpiwLQ1DjH2t0aZcfTxYLiyy+kmBuqB\n' +
+							'xeMjBFbZSRfJU8KQ1roSYPGoas6V2GRciuQeYVW+LW88X3NXyNIvtiNPM30EcO3F\n' +
+							'Gy8WEwXJtr4AIrn+pFfRhljXwxcbbgcNa/JLmxNbQf8Dy9E1mK+2NLuAURE3eY9J\n' +
+							'9n/rdfqpzTQbEahtWlQ0P8IlHIPLGrWns67clwVKn4C9OoIKtS/3rwOrt2F+CCRb\n' +
+							'sq1/QZQI/hTmCECNkF+a4AWelfnknCjCCitgMkDs525w/eKAY08IZHnDg6MrdwSx\n' +
+							'7KShSyrTWDtvjOeW/wug1KVTwq8TJ18kbjhsdI+hTLmTtZecfqb/GAyvsBfj/xrk\n' +
+							'Nn2OpwR/OrolCAgIYD/TR69p4qtGgPZJZefV3O09WsQGFbABlYFAj6VMWnfHOays\n' +
+							'+VUgUMXDuwk4qGf5kkoylNx/Rs9GM5MteWaGNuVUVQW1K4s9+wAGfDcH9c/Htopz\n' +
+							'0iN5N4fu7CsoQwY2CB4Ga10GiFsX\n' +
+							'-----END CERTIFICATE-----\n',
+					), // .readFileSync('./ca.crt'),
+					//key:
+					//cert:
+				},
 			};
 
 			if (credentials.password) {
@@ -709,7 +761,7 @@ export class Redis implements INodeType {
 						const clientInfo = util.promisify(client.info).bind(client);
 						const result = await clientInfo();
 
-						resolve([[{ json: convertInfoToObject(result as string) }]]);
+						resolve(this.prepareOutputData([{ json: convertInfoToObject(result as string) }]));
 						client.quit();
 					} else if (
 						['delete', 'get', 'keys', 'set', 'incr', 'publish', 'push', 'pop'].includes(operation)
@@ -756,23 +808,27 @@ export class Redis implements INodeType {
 									continue;
 								}
 
+								const promises: {
+									[key: string]: GenericValue;
+								} = {};
+
 								for (const keyName of keys) {
-									item.json[keyName] = await getValue(client, keyName);
+									promises[keyName] = await getValue(client, keyName);
+								}
+
+								for (const keyName of keys) {
+									// eslint-disable-next-line @typescript-eslint/await-thenable
+									item.json[keyName] = await promises[keyName];
 								}
 								returnItems.push(item);
 							} else if (operation === 'set') {
 								const keySet = this.getNodeParameter('key', itemIndex) as string;
 								const value = this.getNodeParameter('value', itemIndex) as string;
 								const keyType = this.getNodeParameter('keyType', itemIndex) as string;
-								const valueIsJSON = this.getNodeParameter(
-									'valueIsJSON',
-									itemIndex,
-									true,
-								) as boolean;
 								const expire = this.getNodeParameter('expire', itemIndex, false) as boolean;
 								const ttl = this.getNodeParameter('ttl', itemIndex, -1) as number;
 
-								await setValue(client, keySet, value, expire, ttl, keyType, valueIsJSON);
+								await setValue(client, keySet, value, expire, ttl, keyType);
 								returnItems.push(items[itemIndex]);
 							} else if (operation === 'incr') {
 								const keyIncr = this.getNodeParameter('key', itemIndex) as string;
@@ -831,7 +887,7 @@ export class Redis implements INodeType {
 						}
 
 						client.quit();
-						resolve([returnItems]);
+						resolve(this.prepareOutputData(returnItems));
 					}
 				} catch (error) {
 					reject(error);

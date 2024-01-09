@@ -1,21 +1,11 @@
 import type Bull from 'bull';
+import type { RedisOptions } from 'ioredis';
 import { Service } from 'typedi';
-import {
-	ApplicationError,
-	type ExecutionError,
-	type IExecuteResponsePromiseData,
-} from 'n8n-workflow';
-import { ActiveExecutions } from '@/ActiveExecutions';
-import { decodeWebhookResponse } from '@/helpers/decodeWebhookResponse';
-
-import {
-	getRedisClusterClient,
-	getRedisClusterNodes,
-	getRedisPrefix,
-	getRedisStandardClient,
-} from './services/redis/RedisServiceHelper';
-import type { RedisClientType } from './services/redis/RedisServiceBaseClasses';
+import type { IExecuteResponsePromiseData } from 'n8n-workflow';
 import config from '@/config';
+import { ActiveExecutions } from '@/ActiveExecutions';
+import * as WebhookHelpers from '@/WebhookHelpers';
+import fs from 'fs';
 
 export type JobId = Bull.JobId;
 export type Job = Bull.Job<JobData>;
@@ -28,12 +18,23 @@ export interface JobData {
 
 export interface JobResponse {
 	success: boolean;
-	error?: ExecutionError;
 }
 
 export interface WebhookResponse {
 	executionId: string;
 	response: IExecuteResponsePromiseData;
+}
+
+interface SecureRedisConfig {
+	secure: boolean;
+	tls?: {
+		cert?: string | Buffer;
+		cert_file?: string;
+		key?: string | Buffer;
+		key_file?: string;
+		ca?: string | Buffer;
+		ca_file?: string;
+	};
 }
 
 @Service()
@@ -43,32 +44,46 @@ export class Queue {
 	constructor(private activeExecutions: ActiveExecutions) {}
 
 	async init() {
-		const bullPrefix = config.getEnv('queue.bull.prefix');
-		const prefix = getRedisPrefix(bullPrefix);
-		const clusterNodes = getRedisClusterNodes();
-		const usesRedisCluster = clusterNodes.length > 0;
+		const prefix = config.getEnv('queue.bull.prefix');
+		// const redisOptions: RedisOptions = config.getEnv('queue.bull.redis');
+		const redisOptions = config.getEnv('queue.bull.redis') as SecureRedisConfig;
+		if (!redisOptions.secure) {
+			delete redisOptions.tls;
+		} else {
+			if (!redisOptions.tls) redisOptions.tls = {};
+			if (!redisOptions.tls.ca) {
+				if (redisOptions.tls.ca_file) {
+					redisOptions.tls.ca = fs.readFileSync(redisOptions.tls.ca_file);
+				}
+			}
+			if (!redisOptions.tls?.key) {
+				if (redisOptions.tls?.key_file) {
+					redisOptions.tls.key = fs.readFileSync(redisOptions.tls.key_file);
+				}
+			}
+			if (!redisOptions.tls?.cert) {
+				if (redisOptions.tls?.cert_file) {
+					redisOptions.tls.cert = fs.readFileSync(redisOptions.tls.cert_file);
+				}
+			}
+		}
 
+		// eslint-disable-next-line @typescript-eslint/naming-convention
 		const { default: Bull } = await import('bull');
 
-		const { default: Redis } = await import('ioredis');
 		// Disabling ready check is necessary as it allows worker to
 		// quickly reconnect to Redis if Redis crashes or is unreachable
 		// for some time. With it enabled, worker might take minutes to realize
 		// redis is back up and resume working.
 		// More here: https://github.com/OptimalBits/bull/issues/890
-		this.jobQueue = new Bull('jobs', {
-			prefix,
-			settings: config.get('queue.bull.settings'),
-			createClient: (type, clientConfig) =>
-				usesRedisCluster
-					? getRedisClusterClient(Redis, clientConfig, (type + '(bull)') as RedisClientType)
-					: getRedisStandardClient(Redis, clientConfig, (type + '(bull)') as RedisClientType),
-		});
+		// @ts-ignore
+		this.jobQueue = new Bull('jobs', { prefix, redis: redisOptions, enableReadyCheck: false });
 
 		this.jobQueue.on('global:progress', (jobId, progress: WebhookResponse) => {
 			this.activeExecutions.resolveResponsePromise(
+				// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
 				progress.executionId,
-				decodeWebhookResponse(progress.response),
+				WebhookHelpers.decodeWebhookResponse(progress.response),
 			);
 		});
 	}
@@ -85,23 +100,7 @@ export class Queue {
 		return this.jobQueue.getJobs(jobTypes);
 	}
 
-	async process(concurrency: number, fn: Bull.ProcessCallbackFunction<JobData>): Promise<void> {
-		return this.jobQueue.process(concurrency, fn);
-	}
-
-	async ping(): Promise<string> {
-		return this.jobQueue.client.ping();
-	}
-
-	async pause(isLocal?: boolean): Promise<void> {
-		return this.jobQueue.pause(isLocal);
-	}
-
 	getBullObjectInstance(): JobQueue {
-		if (this.jobQueue === undefined) {
-			// if queue is not initialized yet throw an error, since we do not want to hand around an undefined queue
-			throw new ApplicationError('Queue is not initialized yet!');
-		}
 		return this.jobQueue;
 	}
 
