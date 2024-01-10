@@ -510,6 +510,19 @@ export class Redis implements INodeType {
 					db: credentials.database as number,
 				};
 
+				if (credentials.useTls) {
+					const redisTlsOptions: any = {
+						minVersion: 'TLSv1.2',
+						maxVersion: 'TLSv1.3',
+						rejectUnauthorized: false,
+					};
+
+					if (credentials.caCert) {
+						redisTlsOptions.ca = [Buffer.from(credentials.caCert as string)];
+					}
+					redisOptions.tls = redisTlsOptions;
+				}
+
 				if (credentials.password) {
 					redisOptions.password = credentials.password as string;
 				}
@@ -688,6 +701,19 @@ export class Redis implements INodeType {
 				port: credentials.port as number,
 				db: credentials.database as number,
 			};
+
+			if (credentials.useTls) {
+				const redisTlsOptions: any = {
+					minVersion: 'TLSv1.2',
+					maxVersion: 'TLSv1.3',
+					rejectUnauthorized: false,
+				};
+
+				if (credentials.caCert) {
+					redisTlsOptions.ca = [Buffer.from(credentials.caCert as string)];
+				}
+				redisOptions.tls = redisTlsOptions;
+			}
 
 			if (credentials.password) {
 				redisOptions.password = credentials.password as string;

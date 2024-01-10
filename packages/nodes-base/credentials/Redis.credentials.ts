@@ -35,5 +35,17 @@ export class Redis implements ICredentialType {
 			type: 'number',
 			default: 0,
 		},
+		{
+			displayName: 'Use TLS',
+			name: 'useTls',
+			type: 'boolean',
+			default: false,
+		},
+		{
+			displayName: 'CA Cert',
+			name: 'caCert',
+			type: 'string',
+			default: '',
+		},
 	];
 }
