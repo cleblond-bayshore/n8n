@@ -9,6 +9,12 @@ export class Redis implements ICredentialType {
 
 	properties: INodeProperties[] = [
 		{
+			displayName: 'Username',
+			name: 'username',
+			type: 'string',
+			default: '',
+		},
+		{
 			displayName: 'Password',
 			name: 'password',
 			type: 'string',
@@ -40,12 +46,6 @@ export class Redis implements ICredentialType {
 			name: 'useTls',
 			type: 'boolean',
 			default: false,
-		},
-		{
-			displayName: 'CA Cert',
-			name: 'caCert',
-			type: 'string',
-			default: '',
 		},
 	];
 }
