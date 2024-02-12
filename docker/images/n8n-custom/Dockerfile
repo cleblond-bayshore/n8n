@@ -9,6 +9,7 @@ COPY --chown=node:node packages ./packages
 COPY --chown=node:node patches ./patches
 
 RUN apk add --update jq
+RUN apk add --no-cache make gcc g++ python3
 RUN corepack enable && corepack prepare --activate
 USER node
 
